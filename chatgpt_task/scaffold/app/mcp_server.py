@@ -9,7 +9,7 @@ Or test with the inspector:
 
 import asyncio
 import json
-from datetime import datetime
+from datetime import UTC, datetime
 
 from mcp.server import Server
 from mcp.server.stdio import stdio_server
@@ -26,18 +26,27 @@ from .scheduler import get_time_bucket, start_scheduler
 # ===================================================================
 
 
-def handle_create_task(db: Session, *, description: str, scheduled_at: str) -> dict:
+def handle_create_task(
+    db: Session,
+    *,
+    description: str,
+    scheduled_at: str,
+    job_type: str = "generic",
+) -> dict:
     """Create a new scheduled job."""
     dt = datetime.fromisoformat(scheduled_at)
+    if dt.tzinfo is not None:
+        dt = dt.astimezone(UTC).replace(tzinfo=None)
     job = Job(
         description=description,
         scheduled_at=dt,
         time_bucket=get_time_bucket(dt),
+        job_type=job_type,
     )
     db.add(job)
     db.commit()
     db.refresh(job)
-    return {"job_id": job.id, "status": job.status, "scheduled_at": str(job.scheduled_at)}
+    return {"job_id": job.id, "job_type": job.job_type, "status": job.status, "scheduled_at": str(job.scheduled_at)}
 
 
 def handle_get_status(db: Session, *, job_id: int) -> dict:
@@ -48,6 +57,7 @@ def handle_get_status(db: Session, *, job_id: int) -> dict:
     return {
         "job_id": job.id,
         "description": job.description,
+        "job_type": job.job_type,
         "status": job.status,
         "scheduled_at": str(job.scheduled_at),
         "result": job.result,
@@ -62,6 +72,7 @@ def handle_list_tasks(db: Session) -> dict:
             {
                 "job_id": j.id,
                 "description": j.description,
+                "job_type": j.job_type,
                 "status": j.status,
                 "scheduled_at": str(j.scheduled_at),
             }
@@ -89,7 +100,7 @@ def handle_cancel_task(db: Session, *, job_id: int) -> dict:
 
 TOOL_DEFINITIONS: list[Tool] = [
     Tool(
-        name="task.create",
+        name="task_create",
         description="Schedule a new task for future execution",
         inputSchema={
             "type": "object",
@@ -101,19 +112,25 @@ TOOL_DEFINITIONS: list[Tool] = [
                 "scheduled_at": {
                     "type": "string",
                     "format": "date-time",
-                    "description": "When to run, ISO 8601 format (e.g. 2026-05-03T10:00:00)",
+                    "description": "When to run, ISO 8601 format. Timezone offset supported (e.g. 2026-05-14T09:00:00+08:00).",
+                },
+                "job_type": {
+                    "type": "string",
+                    "enum": ["generic", "github_pr_check"],
+                    "default": "generic",
+                    "description": "Task type. Use 'github_pr_check' to fetch open GitHub PRs assigned to you.",
                 },
             },
             "required": ["description", "scheduled_at"],
         },
     ),
     Tool(
-        name="task.list",
+        name="task_list",
         description="List all scheduled tasks",
         inputSchema={"type": "object", "properties": {}},
     ),
     Tool(
-        name="task.status",
+        name="task_status",
         description="Get the status of a scheduled task by job_id",
         inputSchema={
             "type": "object",
@@ -124,7 +141,7 @@ TOOL_DEFINITIONS: list[Tool] = [
         },
     ),
     Tool(
-        name="task.cancel",
+        name="task_cancel",
         description="Cancel a scheduled task that hasn't completed yet",
         inputSchema={
             "type": "object",
@@ -155,10 +172,10 @@ TOOL_DEFINITIONS: list[Tool] = [
 #    (e.g., handle_create_task)
 # 4. There are 4 tools: task.create, task.list, task.status, task.cancel
 TOOL_REGISTRY: dict = {
-    "task.create": handle_create_task,
-    "task.list":   handle_list_tasks,
-    "task.status": handle_get_status,
-    "task.cancel": handle_cancel_task,
+    "task_create": handle_create_task,
+    "task_list":   handle_list_tasks,
+    "task_status": handle_get_status,
+    "task_cancel": handle_cancel_task,
 }
 
 

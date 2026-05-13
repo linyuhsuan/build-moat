@@ -18,6 +18,7 @@ class Job(Base):
     time_bucket: Mapped[str] = mapped_column(String(10), nullable=False, index=True)
     description: Mapped[str] = mapped_column(Text, nullable=False)
     scheduled_at: Mapped[datetime] = mapped_column(DateTime, nullable=False)
+    job_type: Mapped[str] = mapped_column(String(50), nullable=False, default="generic")
     status: Mapped[str] = mapped_column(String(20), default="pending")  # pending, queued, running, completed, failed, cancelled
     result: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=_utcnow)
