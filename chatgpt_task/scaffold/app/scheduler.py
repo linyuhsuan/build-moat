@@ -80,6 +80,7 @@ def worker_loop():
     while True:
         job_id = job_queue.get()
         db = SessionLocal()
+        job = None
         try:
             job = db.query(Job).filter(Job.id == job_id).first()
             if job is None or job.status == "cancelled":
@@ -88,14 +89,19 @@ def worker_loop():
             job.status = "running"
             db.commit()
 
-            # Simulate execution — in production this would call LLM
-            job.result = f"Executed: {job.description}"
+            if job.job_type == "github_pr_check":
+                from .github_handler import fetch_prs_assigned_to_me
+                job.result = fetch_prs_assigned_to_me()
+            else:
+                job.result = f"Executed: {job.description}"
+
             job.status = "completed"
             db.commit()
         except Exception as e:
-            job.status = "failed"
-            job.result = str(e)
-            db.commit()
+            if job:
+                job.status = "failed"
+                job.result = str(e)
+                db.commit()
         finally:
             db.close()
             job_queue.task_done()
